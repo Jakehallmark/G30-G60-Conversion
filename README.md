@@ -53,7 +53,7 @@ python convert_g30_to_g60.py "source.xml" "C:\Work\Converted"
 
 - **Python 3.10+** — standard library only, no pip installs needed
 - The script and `G60 Conversion_Publix_850_Base.xml` must remain in the **same folder**
-- G30 source files must be **UTF-16 LE** encoded (the standard UR Setup export format)
+- G30 and G60 source files can be **UTF-8 or UTF-16 LE** encoded (the script auto-detects)
 
 ---
 
@@ -61,7 +61,7 @@ python convert_g30_to_g60.py "source.xml" "C:\Work\Converted"
 
 ### 1. Parsing
 
-Both the G30 source file and the G60 template are read as raw bytes and decoded as UTF-16 LE (GE UR Setup's native XML encoding). The G60 template provides the output structure; its `version` and `orderCode` attributes are always preserved unchanged.
+Both the G30 source file and the G60 template are read as raw bytes. The script first attempts to parse as UTF-8 (allowing for XML encoding declarations), falling back to UTF-16 LE if needed. The G60 template provides the output structure; its `version` and `orderCode` attributes are always preserved unchanged.
 
 ### 2. Setting Matching
 
@@ -166,6 +166,14 @@ When comparing the converted file against an expert-configured G60 reference in 
 - **Intentional configuration differences** — Any setting where the expert G60 reference was deliberately configured differently from the G30 source will appear as a Difference.
 
 **Zero Invalid Settings** is the target after a clean conversion. Invalid Settings indicate a value format or firmware-code problem that requires investigation.
+
+---
+
+## Recent Changes
+
+- **2026-04-23**: Updated XML parsing to auto-detect encoding (UTF-8 first, then UTF-16 LE fallback). Added control character sanitization to handle G30 files with invalid characters in setting values or attributes.
+- **2026-04-23**: Improved numeric range detection to parse lower-firmware G30 number values consistently, reducing missed out-of-range warnings.
+- **2026-04-23**: Added automatic legacy scaling for IEC power factor threshold values from lower-firmware G30 files, with explicit reporting of the adjustment.
 
 ---
 

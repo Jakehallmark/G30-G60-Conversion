@@ -47,6 +47,8 @@ class TransferredRecord:
     g30_value: str
     g60_template_value: str
     range_warning: Optional[str] = None
+    original_g30_value: Optional[str] = None
+    adjustment_note: Optional[str] = None
 
     @property
     def value_changed(self) -> bool:
@@ -81,14 +83,17 @@ class G60OnlyRecord:
 
 # ── XML helpers ────────────────────────────────────────────────────────────────
 
-def read_utf16le(path: Path) -> str:
+def parse_xml(path: Path) -> ET.Element:
     with open(path, "rb") as f:
         raw = f.read()
-    return raw.decode("utf-16-le")
 
-
-def parse_xml(path: Path) -> ET.Element:
-    return ET.fromstring(read_utf16le(path))
+    try:
+        return ET.fromstring(raw)
+    except ET.ParseError:
+        try:
+            return ET.fromstring(raw.decode("utf-16-le"))
+        except (UnicodeDecodeError, ET.ParseError):
+            raise
 
 
 def build_lookup(root: ET.Element) -> dict:
@@ -184,19 +189,43 @@ def build_path_map(root: ET.Element) -> dict:
     return paths
 
 
-def check_range(setting: ET.Element, g30_value_str: str) -> Optional[str]:
+def parse_number_value(raw: str) -> Optional[float]:
     try:
-        numeric = g30_value_str.split()[0]
-        val = float(numeric)
-        lo = setting.get("MinValue")
-        hi = setting.get("MaxValue")
+        match = _NUM_PATTERN.match(raw.strip())
+        if not match:
+            return None
+        return float(match.group(1))
+    except (ValueError, AttributeError):
+        return None
+
+
+def check_range(setting: ET.Element, g30_value_str: str) -> Optional[str]:
+    val = parse_number_value(g30_value_str or "")
+    if val is None:
+        return None
+
+    lo = setting.get("MinValue")
+    hi = setting.get("MaxValue")
+    try:
         if lo is not None and val < float(lo):
             return f"{val} < G60 min {lo}"
         if hi is not None and val > float(hi):
             return f"{val} > G60 max {hi}"
-    except (ValueError, IndexError, AttributeError):
+    except ValueError:
         pass
     return None
+
+
+def maybe_adjust_legacy_number_value(g60_el: ET.Element, g30_value: str) -> tuple[Optional[str], Optional[str]]:
+    """Apply legacy firmware scaling for known G30 Number settings."""
+    label = g60_el.get("labelID", "")
+    if label == "UR_DATA_IEC_POWER_FACTOR_DEFAULT_THRESHOLD":
+        raw = parse_number_value(g30_value or "")
+        max_val = parse_number_value(g60_el.get("MaxValue", "") or "")
+        if raw is not None and max_val == 1.0 and raw > 1 and raw <= 100000:
+            adjusted = raw / 100000.0
+            return str(adjusted), "Legacy PF threshold scaled from raw G30 units"
+    return None, None
 
 
 _NUM_PATTERN = re.compile(r"^(-?\d+\.?\d*(?:[eE][+-]?\d+)?)\s*(.*)", re.DOTALL)
@@ -224,32 +253,52 @@ def reformat_number_value(g30_value: str, g60_template_value: str) -> str:
         return g30_value
 
 
+def clean_value(value: str) -> str:
+    """Remove control characters that are invalid in XML."""
+    return "".join(c for c in value if c == "\t" or c == "\n" or c == "\r" or ord(c) >= 32)
+
+
+def clean_tree(root: ET.Element) -> None:
+    """Remove control characters from all text and attributes in the XML tree."""
+    for el in root.iter():
+        if el.text:
+            el.text = clean_value(el.text)
+        if el.tail:
+            el.tail = clean_value(el.tail)
+        for attr, value in list(el.attrib.items()):
+            el.set(attr, clean_value(value))
+
+
 def transfer_value(
     g60_el: ET.Element,
     g30_el: ET.Element,
     g60_flex_fv_map: Optional[dict] = None,
-) -> None:
+) -> Optional[str]:
     stype = g60_el.get("SettingType", "")
     raw_g30_value = g30_el.get("value", g60_el.get("value", ""))
     g60_template_value = g60_el.get("value", "")
     g60_template_fv = g60_el.get("FlexValue", "")
 
+    adjustment_note = None
     if stype == "Number":
-        g60_el.set("value", reformat_number_value(raw_g30_value, g60_template_value))
+        adjusted_value, adjustment_note = maybe_adjust_legacy_number_value(g60_el, raw_g30_value)
+        if adjusted_value is not None:
+            raw_g30_value = adjusted_value
+        g60_el.set("value", clean_value(reformat_number_value(raw_g30_value, g60_template_value)))
     elif stype == "Enum":
-        g60_el.set("value", raw_g30_value)
+        g60_el.set("value", clean_value(raw_g30_value))
         if "EnumValue" in g30_el.attrib:
-            g60_el.set("EnumValue", g30_el.get("EnumValue", ""))
+            g60_el.set("EnumValue", clean_value(g30_el.get("EnumValue", "")))
     elif stype == "Flex":
         if "FlexValue" not in g30_el.attrib:
-            g60_el.set("value", raw_g30_value)
-            return
+            g60_el.set("value", clean_value(raw_g30_value))
+            return adjustment_note
         if g60_flex_fv_map is not None:
             g60_fv = g60_flex_fv_map.get(raw_g30_value)
             if g60_fv is not None:
                 # Operand exists in G60: transfer name + correct G60 firmware code
-                g60_el.set("value", raw_g30_value)
-                g60_el.set("FlexValue", g60_fv)
+                g60_el.set("value", clean_value(raw_g30_value))
+                g60_el.set("FlexValue", clean_value(g60_fv))
             else:
                 # Operand not in G60 map.
                 # Hardware-address-based operands (contacts, virtual outputs, timers,
@@ -258,16 +307,18 @@ def transfer_value(
                 # when SRC4 is absent from this G60 order) have a G30 code that won't
                 # match the G60 template entry code → revert to G60 template default.
                 if g30_el.get("FlexValue", "") == g60_template_fv:
-                    g60_el.set("value", raw_g30_value)
+                    g60_el.set("value", clean_value(raw_g30_value))
                     # FlexValue already equals template value; no change needed
                 else:
                     # G30 operand unknown in this G60 hardware config; keep template default
                     pass  # g60_el retains its template value and FlexValue unchanged
         else:
-            g60_el.set("value", raw_g30_value)
-            g60_el.set("FlexValue", g30_el.get("FlexValue", ""))
+            g60_el.set("value", clean_value(raw_g30_value))
+            g60_el.set("FlexValue", clean_value(g30_el.get("FlexValue", "")))
     else:
-        g60_el.set("value", raw_g30_value)
+        g60_el.set("value", clean_value(raw_g30_value))
+
+    return adjustment_note
 
 
 # ── Core conversion ────────────────────────────────────────────────────────────
@@ -351,10 +402,6 @@ def convert(
         g30_match = g30_lookup.get(key)
         if g30_match is not None:
             g60_template_value = setting.get("value", "")
-            rng_warn = None
-            if setting.get("SettingType") == "Number":
-                rng_warn = check_range(setting, g30_match.get("value", ""))
-
             rec = TransferredRecord(
                 path=path,
                 label_id=key[0],
@@ -366,11 +413,15 @@ def convert(
                 g30_name=g30_match.get("screenName", ""),
                 setting_type=setting.get("SettingType", ""),
                 g30_value=g30_match.get("value", ""),
+                original_g30_value=g30_match.get("value", ""),
                 g60_template_value=g60_template_value,
-                range_warning=rng_warn,
             )
+            rec.adjustment_note = transfer_value(setting, g30_match, g60_flex_fv_map)
+            rec.g30_value = setting.get("value", "")
+            if setting.get("SettingType") == "Number":
+                rec.range_warning = check_range(setting, rec.g30_value)
+
             transferred_records.append(rec)
-            transfer_value(setting, g30_match, g60_flex_fv_map)
         else:
             g60_only_records.append(G60OnlyRecord(
                 path=path,
@@ -406,6 +457,7 @@ def convert(
     value_changes = [r for r in transferred_records if r.value_changed]
     name_diffs = [r for r in transferred_records if r.name_changed]
     range_warnings = [r for r in transferred_records if r.range_warning]
+    auto_adjusted = [r for r in transferred_records if r.adjustment_note]
     unchanged = [r for r in transferred_records if not r.value_changed]
 
     # ── Console summary ────────────────────────────────────────────────────────
@@ -415,11 +467,16 @@ def convert(
     print(f"  Transferred G30 -> G60          : {len(transferred_records)}")
     print(f"    of which values changed       : {len(value_changes)}")
     print(f"    of which names differ         : {len(name_diffs)}")
+    if auto_adjusted:
+        print(f"    of which were auto-adjusted   : {len(auto_adjusted)}")
     print(f"  G60-only (kept at defaults)     : {len(g60_only_records)}")
     print(f"  G30-only (dropped)              : {len(dropped_records)}")
     if range_warnings:
         print(f"\n  WARNING: {len(range_warnings)} out-of-range value(s) -- review HTML report")
     print(f"{SEP}\n")
+
+    # Clean the tree of control characters
+    clean_tree(g60_root)
 
     # ── Safety: refuse to overwrite input files ────────────────────────────────
     input_paths = {g30_path.resolve(), g60_template_path.resolve()}
@@ -543,10 +600,12 @@ def build_html_report(
         warn = f' <span class="warn-icon" title="{e(r.range_warning)}">&#9888;</span>' if r.range_warning else ""
         name_note = (f'<br><span class="dim">G30 name: {e(r.g30_name)}</span>'
                      if r.name_changed else "")
+        adj_note = (f'<br><span class="dim">{e(r.adjustment_note)}</span>'
+                    if r.adjustment_note else "")
         vc_rows.append(
             f"<tr>"
             f"{path_cell(r.path)}"
-            f"<td>{e(r.g60_name)}{name_note}{warn}</td>"
+            f"<td>{e(r.g60_name)}{name_note}{warn}{adj_note}</td>"
             f"{key_cell(r)}"
             f"<td>{type_badge(r.setting_type)}</td>"
             f"{value_cell(r.g60_template_value, 'old-val')}"
@@ -576,6 +635,24 @@ def build_html_report(
     nd_content = table(
         ["Location (G60)", "G60 Name", "G30 Name", "Label ID / Key", "Type"],
         nd_rows, "tbl-nd"
+    )
+
+    auto_adjusted = [r for r in transferred if r.adjustment_note]
+    aa_rows = []
+    for r in sorted(auto_adjusted, key=lambda x: (x.path, x.g60_name)):
+        aa_rows.append(
+            f"<tr>"
+            f"{path_cell(r.path)}"
+            f"<td>{e(r.g60_name)}</td>"
+            f"{key_cell(r)}"
+            f"{value_cell(r.original_g30_value or r.g30_value)}"
+            f"{value_cell(r.g30_value, 'new-val')}"
+            f"<td>{e(r.adjustment_note or '')}</td>"
+            f"</tr>"
+        )
+    aa_content = table(
+        ["Location (G60)", "Setting Name", "Label ID / Key", "Original G30 Value", "Adjusted G60 Value", "Note"],
+        aa_rows, "tbl-aa"
     )
 
     # ── Section: Range warnings ────────────────────────────────────────────────
@@ -656,10 +733,18 @@ def build_html_report(
             len(range_warnings), "&#9888;", "color-warn", rw_content, "sec-rw"
         )
 
+    auto_adjusted_section = ""
+    if auto_adjusted:
+        auto_adjusted_section = section(
+            "Automatic Adjustments — Legacy G30 values scaled for G60",
+            len(auto_adjusted), "&#9888;", "color-warn", aa_content, "sec-aa"
+        )
+
     sections_html = (
         range_section +
         section("Value Changes — G30 Value Differs from G60 Template Default",
                 len(value_changes), "&#8644;", "color-changed", vc_content, "sec-vc") +
+        auto_adjusted_section +
         section("Setting Name Differences — Same Register, Different Display Name",
                 len(name_diffs), "&#8756;", "color-name", nd_content, "sec-nd") +
         section("G60-Only Settings — New in G60, Kept at Template Defaults",
