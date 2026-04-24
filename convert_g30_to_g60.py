@@ -7,6 +7,12 @@ Produces:
 
 Matching key: (labelID, group, module, item, bit)
 
+Base Template Selection:
+  Auto-detects which G60 base template to use based on the G30 source file's
+  deviceName attribute:
+  - If deviceName contains "Publix" → uses "G60 Publix Base.xml"
+  - Otherwise → uses "G60 Base.xml"
+
 Output naming:
   - Reads deviceName and version from the G30 source file.
   - Reads deviceName from the G60 template (carries the G60 model identifier).
@@ -17,8 +23,8 @@ Output naming:
   - version and orderCode in the output XML are always preserved from the G60 template.
 
 Usage:
-  python convert_g30_to_g60.py [g30_input] [g60_template] [output_dir]
-  (all optional; defaults to files in the same folder as this script)
+  python convert_g30_to_g60.py [g30_input] [output_dir]
+  (g30_input required; output_dir defaults to ./Converted)
 """
 
 import html as html_lib
@@ -82,6 +88,43 @@ class G60OnlyRecord:
 
 
 # ── XML helpers ────────────────────────────────────────────────────────────────
+
+def get_device_name(xml_root: ET.Element) -> str:
+    """Extract the deviceName attribute from the XML root element."""
+    return xml_root.get("deviceName", "").lower()
+
+
+def select_base_template(g30_path: Path, base_dir: Path) -> Path:
+    """
+    Auto-detect which G60 base template to use based on G30 deviceName.
+    If the G30 file's deviceName contains 'publix', use G60 Publix Base.xml,
+    otherwise use G60 Base.xml.
+    """
+    base_publix = base_dir / "G60 Publix Base.xml"
+    base_standard = base_dir / "G60 Base.xml"
+
+    try:
+        root = parse_xml(g30_path)
+        device_name = get_device_name(root)
+        if "publix" in device_name:
+            if base_publix.exists():
+                print(f"  Auto-detected Publix device; using: {base_publix.name}")
+                return base_publix
+        if base_standard.exists():
+            return base_standard
+    except Exception as e:
+        print(f"  Warning: Could not read G30 deviceName ({e}); using standard base", file=sys.stderr)
+        if base_standard.exists():
+            return base_standard
+
+    # Fallback to whichever base exists
+    if base_publix.exists():
+        return base_publix
+    if base_standard.exists():
+        return base_standard
+
+    raise FileNotFoundError(f"Neither base template found in {base_dir}")
+
 
 def parse_xml(path: Path) -> ET.Element:
     with open(path, "rb") as f:
@@ -964,28 +1007,33 @@ function filterTable(input) {{
 if __name__ == "__main__":
     here = Path(__file__).parent
 
-    # ── G60 template is fixed — update this path if you move the template file.
-    G60_TEMPLATE = here / "G60 Conversion_Publix_850_Base.xml"
-
     # Drag-and-drop or command-line usage:
     #   python convert_g30_to_g60.py  <g30_source.xml>  [output_dir]
     #
     # When a file is dropped onto this script (or the .bat launcher), Windows
-    # passes its path as sys.argv[1].  The G60 template and output directory
-    # are resolved automatically — no other arguments are needed.
+    # passes its path as sys.argv[1].  The G60 base template is auto-detected
+    # based on the G30 file's deviceName (Publix vs. standard), and the
+    # output directory is resolved automatically.
     if len(sys.argv) < 2:
         print("Usage:  python convert_g30_to_g60.py  <g30_source.xml>  [output_dir]")
-        print(f"  G60 template : {G60_TEMPLATE}")
+        print(f"  G60 templates: G60 Base.xml (standard) or G60 Publix Base.xml")
+        print(f"  Auto-detection: Based on G30 deviceName")
         print(f"  Output dir   : {here / 'Converted'}  (default)")
         sys.exit(0)
 
-    g30_path          = Path(sys.argv[1])
-    g60_template_path = G60_TEMPLATE
-    output_dir        = Path(sys.argv[2]) if len(sys.argv) > 2 else here / "Converted"
+    g30_path  = Path(sys.argv[1])
+    output_dir = Path(sys.argv[2]) if len(sys.argv) > 2 else here / "Converted"
 
-    for p in (g30_path, g60_template_path):
-        if not p.exists():
-            print(f"ERROR: File not found: {p}", file=sys.stderr)
-            sys.exit(1)
+    if not g30_path.exists():
+        print(f"ERROR: File not found: {g30_path}", file=sys.stderr)
+        sys.exit(1)
+
+    # Auto-detect which G60 base template to use
+    print(f"Reading: {g30_path.name}")
+    g60_template_path = select_base_template(g30_path, here)
+
+    if not g60_template_path.exists():
+        print(f"ERROR: Base template not found: {g60_template_path}", file=sys.stderr)
+        sys.exit(1)
 
     convert(g30_path, g60_template_path, output_dir)

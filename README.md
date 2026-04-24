@@ -10,7 +10,8 @@ Converts GE Multilin UR series **G30** relay settings XML files to **G60** forma
 |------|---------|
 | `convert_g30_to_g60.py` | Main conversion script |
 | `Convert G30 to G60.bat` | Drag-and-drop launcher |
-| `G60 Conversion_Publix_850_Base.xml` | G60 template (do not modify or move) |
+| `G60 Base.xml` | G60 standard template (auto-selected for non-Publix devices) |
+| `G60 Publix Base.xml` | G60 Publix template (auto-selected if G30 deviceName contains "Publix") |
 | `Converted\` | Output folder (created automatically) |
 
 ---
@@ -37,11 +38,18 @@ python convert_g30_to_g60.py  <g30_source.xml>  [output_dir]
 | `g30_source.xml` | Yes | Path to the G30 settings file to convert |
 | `output_dir` | No | Folder for outputs (default: `Converted\` next to the script) |
 
+The G60 base template is **automatically selected** based on the G30 file's `deviceName` attribute:
+- If `deviceName` contains "**Publix**" → uses `G60 Publix Base.xml`
+- Otherwise → uses `G60 Base.xml`
+
 **Examples:**
 
 ```batch
-:: Basic — outputs go to .\Converted\
+:: Publix device — auto-selects G60 Publix Base.xml
 python convert_g30_to_g60.py "Publix Firmware7-6_208V4000A[86].xml"
+
+:: Summit or other device — auto-selects G60 Base.xml
+python convert_g30_to_g60.py "Summit G30 480V Wye 400AMain 400AGen 1-4-10.xml"
 
 :: Custom output directory
 python convert_g30_to_g60.py "source.xml" "C:\Work\Converted"
@@ -52,8 +60,9 @@ python convert_g30_to_g60.py "source.xml" "C:\Work\Converted"
 ## Requirements
 
 - **Python 3.10+** — standard library only, no pip installs needed
-- The script and `G60 Conversion_Publix_850_Base.xml` must remain in the **same folder**
+- Both G60 base files (`G60 Base.xml` and `G60 Publix Base.xml`) must remain in the **same folder** as the script
 - G30 and G60 source files can be **UTF-8 or UTF-16 LE** encoded (the script auto-detects)
+- Base template selection is automatic based on G30 `deviceName` — no manual configuration needed
 
 ---
 
@@ -137,19 +146,26 @@ All tables support live text filtering. The report can be printed directly from 
 
 ## Important Notes
 
-### Template File
+### Base Template Files
 
-The file `G60 Conversion_Publix_850_Base.xml` is the conversion base. It defines:
+Two G60 templates provide the conversion base:
+
+- **`G60 Base.xml`** — Standard G60 template used for non-Publix devices (e.g., Summit)
+  - Defines the complete G60 register structure
+  - Contains default values for G60-only settings
+  - Includes G60 firmware's FlexValue operand codes
+
+- **`G60 Publix Base.xml`** — Publix-specific G60 template
+  - Same structure as standard base, configured for Publix devices
+  - Used when G30 `deviceName` contains "Publix"
+
+The selection is **automatic** based on the G30 file's `deviceName` (performed via `select_base_template()` function). Both files must exist in the script directory.
+
+**Do not modify, rename, or move these files.** Each template defines:
 - The complete G60 register structure
-- The correct `version` (`850`) and `orderCode` (`G60-V00-HCL-F8L-H6P-M8L-P5A-UXX-WXX`) that appear in every converted file
+- The correct `version` and `orderCode` that appear in every converted file
 - Default values for G60-only settings
 - The G60 firmware's FlexValue operand codes used to correct Flex settings on transfer
-
-**Do not modify, rename, or move this file.** If you need to update the template (e.g. for a different G60 order code), update the `G60_TEMPLATE` constant near the bottom of `convert_g30_to_g60.py`:
-
-```python
-G60_TEMPLATE = here / "G60 Conversion_Publix_850_Base.xml"
-```
 
 ### What the Script Does Not Change
 
@@ -171,6 +187,7 @@ When comparing the converted file against an expert-configured G60 reference in 
 
 ## Recent Changes
 
+- **2026-04-24**: Added automatic G60 base template selection based on G30 `deviceName`. Publix devices (name contains "Publix") now automatically use `G60 Publix Base.xml`; all others use `G60 Base.xml`. Template choice is logged to console.
 - **2026-04-23**: Updated XML parsing to auto-detect encoding (UTF-8 first, then UTF-16 LE fallback). Added control character sanitization to handle G30 files with invalid characters in setting values or attributes.
 - **2026-04-23**: Improved numeric range detection to parse lower-firmware G30 number values consistently, reducing missed out-of-range warnings.
 - **2026-04-23**: Added automatic legacy scaling for IEC power factor threshold values from lower-firmware G30 files, with explicit reporting of the adjustment.
