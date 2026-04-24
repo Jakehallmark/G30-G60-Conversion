@@ -224,18 +224,50 @@ def reformat_number_value(g30_value: str, g60_template_value: str) -> str:
         return g30_value
 
 
-def transfer_value(g60_el: ET.Element, g30_el: ET.Element) -> None:
+def transfer_value(
+    g60_el: ET.Element,
+    g30_el: ET.Element,
+    g60_flex_fv_map: Optional[dict] = None,
+) -> None:
     stype = g60_el.get("SettingType", "")
     raw_g30_value = g30_el.get("value", g60_el.get("value", ""))
+    g60_template_value = g60_el.get("value", "")
+    g60_template_fv = g60_el.get("FlexValue", "")
+
     if stype == "Number":
-        g60_template_value = g60_el.get("value", "")
         g60_el.set("value", reformat_number_value(raw_g30_value, g60_template_value))
+    elif stype == "Enum":
+        g60_el.set("value", raw_g30_value)
+        if "EnumValue" in g30_el.attrib:
+            g60_el.set("EnumValue", g30_el.get("EnumValue", ""))
+    elif stype == "Flex":
+        if "FlexValue" not in g30_el.attrib:
+            g60_el.set("value", raw_g30_value)
+            return
+        if g60_flex_fv_map is not None:
+            g60_fv = g60_flex_fv_map.get(raw_g30_value)
+            if g60_fv is not None:
+                # Operand exists in G60: transfer name + correct G60 firmware code
+                g60_el.set("value", raw_g30_value)
+                g60_el.set("FlexValue", g60_fv)
+            else:
+                # Operand not in G60 map.
+                # Hardware-address-based operands (contacts, virtual outputs, timers,
+                # logic gates) have identical FlexValues in all firmware versions.
+                # Signal operands tied to specific hardware sources (e.g. SRC4 Ia RMS
+                # when SRC4 is absent from this G60 order) have a G30 code that won't
+                # match the G60 template entry code → revert to G60 template default.
+                if g30_el.get("FlexValue", "") == g60_template_fv:
+                    g60_el.set("value", raw_g30_value)
+                    # FlexValue already equals template value; no change needed
+                else:
+                    # G30 operand unknown in this G60 hardware config; keep template default
+                    pass  # g60_el retains its template value and FlexValue unchanged
+        else:
+            g60_el.set("value", raw_g30_value)
+            g60_el.set("FlexValue", g30_el.get("FlexValue", ""))
     else:
         g60_el.set("value", raw_g30_value)
-    if stype == "Enum" and "EnumValue" in g30_el.attrib:
-        g60_el.set("EnumValue", g30_el.get("EnumValue", ""))
-    elif stype == "Flex" and "FlexValue" in g30_el.attrib:
-        g60_el.set("FlexValue", g30_el.get("FlexValue", ""))
 
 
 # ── Core conversion ────────────────────────────────────────────────────────────
@@ -291,6 +323,18 @@ def convert(
     g60_path_map = build_path_map(g60_root)
     g30_path_map = build_path_map(g30_root)
 
+    # Map G60 operand names to their firmware-internal FlexValue codes.
+    # FlexValue is NOT the same between G30 7.x and G60 8.x firmware for
+    # protection-element outputs and system operands; it IS the same for
+    # hardware-address-based operands (contacts, virtual outputs).
+    g60_flex_fv_map: dict[str, str] = {}
+    for s in g60_root.iter("Setting"):
+        if s.get("SettingType") == "Flex":
+            op = s.get("value", "")
+            fv = s.get("FlexValue", "")
+            if op and fv and op not in g60_flex_fv_map:
+                g60_flex_fv_map[op] = fv
+
     transferred_records: list[TransferredRecord] = []
     g60_only_records: list[G60OnlyRecord] = []
 
@@ -326,7 +370,7 @@ def convert(
                 range_warning=rng_warn,
             )
             transferred_records.append(rec)
-            transfer_value(setting, g30_match)
+            transfer_value(setting, g30_match, g60_flex_fv_map)
         else:
             g60_only_records.append(G60OnlyRecord(
                 path=path,
