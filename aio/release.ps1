@@ -93,7 +93,10 @@ $versionPayload = [ordered]@{
     version = $newVersion
     build   = $newBuild
 }
-($versionPayload | ConvertTo-Json) + "`n" | Set-Content -LiteralPath $VersionFile -Encoding utf8 -NoNewline
+# Windows PowerShell's -Encoding utf8 writes a BOM; Python json.load rejects it.
+$json = ($versionPayload | ConvertTo-Json) + "`n"
+$utf8NoBom = New-Object System.Text.UTF8Encoding $false
+[System.IO.File]::WriteAllText($VersionFile, $json, $utf8NoBom)
 
 . (Join-Path $AioDir "read-version.ps1")
 

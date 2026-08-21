@@ -38,6 +38,7 @@ class VersionInfo:
 
 @lru_cache(maxsize=1)
 def get_version_info() -> VersionInfo:
-    with _VERSION_FILE.open(encoding="utf-8") as fh:
+    # utf-8-sig: Windows PowerShell Set-Content -Encoding utf8 writes a BOM.
+    with _VERSION_FILE.open(encoding="utf-8-sig") as fh:
         data = json.load(fh)
     return VersionInfo(version=str(data["version"]), build=int(data["build"]))
