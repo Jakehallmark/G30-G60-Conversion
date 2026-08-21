@@ -526,13 +526,17 @@ if operand in ("OFF", "Off") or g30_fv == 0:
 #### Assign-virtual-output (`= Parallel (VO1)`)
 
 ```python
-if operand.startswith("= "):
-    vo_match = _ASSIGN_VO_SUFFIX.search(operand)
-    if vo_match:
-        return operand, str(_G60_ASSIGN_VO_BASE + int(vo_match.group(1)))
+vo_num = _flex_assign_vo_number(operand, g30_fv)
+if operand.startswith("= ") or vo_num is not None:
+    display = operand if operand.startswith("= ") else f"= Virt Op {vo_num} (VO{vo_num})"
+    return display, str(_G60_ASSIGN_VO_BASE + vo_num)
 ```
 
 **Why:** Assign-VO labels are user-defined and should be preserved. Only the firmware code shifts from G30 base (`12800 + n`) to G60 base (`3276800 + n`).
+
+Firmware 7.6x `.urs` exports often store these writes as a **bare code** (`3276801`) with no `= Name (VOn)` display string. `urs_value_to_setting_attrs()` must treat that integer as `FlexValue`; remapping then identifies the VO from the numeric range. Without that, the G60 template default (`END` / `2097152`) is kept and FlexLogic is truncated at the first assign-VO row.
+
+**Failure mode (fixed 2026-08-21):** Publix 148 7.61 → G60 8.6 placed End of List at Entry 4 instead of `= Parallel (VO1)`, because bare assign-VO codes were not parsed as Flex values and fell through to the blank-equation template.
 
 #### Hardware-address operands (contacts, VOs)
 
@@ -925,6 +929,7 @@ These attributes always come from the G60 template:
 | G60 setting has no G30 source | **G60-only**; template default kept |
 | Flex operand unresolvable on G60 | Template default kept; not written |
 | FlexLogic syntax code double-shifted on wide-format G30 export | UR Setup rejects `UR_DATA_FLEXLOGIC_ENTRY` rows; cascading "token … is not connected" errors. Fixed by `_flexlogic_syntax_code()` pass-through for values `> 0xFFFF` |
+| FlexLogic assign-VO stored as a bare URS code (no `= Name (VOn)` text) | Converter treated the row as unresolvable and kept template `END` (2097152), inserting End of List mid-equation. Fixed by parsing bare integers as `FlexValue` and remapping assign-VO by numeric range |
 | User-display signal unknown or unavailable | Template default (`0`) kept; note in report |
 | Number value out of G60 range | Value written; **range warning** in report |
 | Output path would overwrite input | Script exits with error |
@@ -1000,4 +1005,4 @@ class G60OnlyRecord: ...     # G60 setting with no G30 source
 
 ---
 
-*Updated to document the URS (.urs) conversion pipeline (`convert_g30_to_g60_urs.py` + `urs_io.py`), which reuses the XML transfer engine and is the default AiO workflow. XML pipeline current as of the FlexLogic dual-format syntax-code fix (2026-07-06).*
+*Updated to document the URS (.urs) conversion pipeline (`convert_g30_to_g60_urs.py` + `urs_io.py`), which reuses the XML transfer engine and is the default AiO workflow. XML pipeline current as of the FlexLogic assign-VO bare-code fix (2026-08-21).*

@@ -32,6 +32,7 @@ from convert_g30_to_g60 import (
     _G60_ASSIGN_VO_BASE,
     _G60_USER_DISPLAY_CODE_OFFSET,
     _USER_DISPLAY_ITEMS_LABEL,
+    _flex_assign_vo_number,
     build_flex_operand_map,
     build_g30_to_g60_signal_names_via_analogoperands,
     build_lookup,
@@ -194,6 +195,38 @@ def _parse_coded_urs_value(urs_value: str) -> tuple[str, str]:
     if match:
         return match.group(1), match.group(2)
     return "", urs_value
+
+
+def _g30_virtual_output_names(g30_urs: UrsFile) -> dict[int, str]:
+    """Map VO number → user-defined name from G30 VIRTUAL_OUTPUT_X_NAME rows."""
+    names: dict[int, str] = {}
+    for row in g30_urs.data_rows:
+        if row.label_id != "UR_DATA_VIRTUAL_OUTPUT_X_NAME":
+            continue
+        try:
+            vo_num = int(row.module)
+        except ValueError:
+            continue
+        name = (row.value or "").strip()
+        if vo_num and name:
+            names[vo_num] = name
+    return names
+
+
+def _decorate_bare_assign_vo(g30_el, vo_names: dict[int, str]) -> None:
+    """Replace a bare assign-VO code with ``= Name (VOn)`` so remap keeps the label."""
+    operand = g30_el.get("value", "") or ""
+    if operand.startswith("= "):
+        return
+    try:
+        fv = int(g30_el.get("FlexValue", ""))
+    except ValueError:
+        return
+    vo_num = _flex_assign_vo_number(operand, fv)
+    if vo_num is None:
+        return
+    name = vo_names.get(vo_num) or f"Virt Op {vo_num}"
+    g30_el.set("value", f"= {name} (VO{vo_num})")
 
 
 def _normalize_enum_display(display: str) -> str:
@@ -393,6 +426,7 @@ def convert_urs(
     stats = UrsConversionStats()
     output_rows: list[UrsDataRow] = []
     transferred_keys: set[tuple[str, str, str, str]] = set()
+    vo_names = _g30_virtual_output_names(g30_urs)
 
     for tpl_row in g60_urs_tpl.data_rows:
         key = tpl_row.key
@@ -471,6 +505,8 @@ def convert_urs(
         g30_el = make_setting_element(
             key[0], key[1], key[2], key[3], "0", setting_type, g30_row.value
         )
+        if setting_type == "Flex" and "FLEXLOGIC_ENTRY" in label_id:
+            _decorate_bare_assign_vo(g30_el, vo_names)
 
         # Work on a copy so repeated keys in the lookup are not mutated.
         work_setting = copy.deepcopy(g60_setting)

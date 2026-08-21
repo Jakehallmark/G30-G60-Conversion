@@ -219,6 +219,10 @@ def urs_value_to_setting_attrs(urs_value: str, setting_type: str) -> dict[str, s
 
     URS encodes Enum/Flex values as ``code (display name)`` while Number/Text
     values are stored as plain strings (e.g. ``30 min``, ``1.000 s``).
+
+    FlexLogic assign-VO writes and empty END tokens are stored as a bare
+    integer (``3276801``, ``2097152``) with no display name. Those must still
+    populate FlexValue so remapping can see the code.
     """
     attrs: dict[str, str] = {"value": urs_value}
 
@@ -231,6 +235,13 @@ def urs_value_to_setting_attrs(urs_value: str, setting_type: str) -> dict[str, s
                 attrs["EnumValue"] = code
             else:
                 attrs["FlexValue"] = code
+        else:
+            stripped = (urs_value or "").strip()
+            if stripped.isdigit():
+                if setting_type == "Enum":
+                    attrs["EnumValue"] = stripped
+                else:
+                    attrs["FlexValue"] = stripped
 
     return attrs
 

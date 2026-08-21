@@ -390,11 +390,14 @@ _G60_USER_DISPLAY_CODE_OFFSET = 262144  # G60 user-display item codes = signal e
 _G30_TO_G60_FLEX_OFFSET = 391680  # Shifts G30 VO/contact read codes to G60 (e.g. 1537 -> 393217)
 _G30_ASSIGN_VO_BASE = 12800
 _G60_ASSIGN_VO_BASE = 3276800  # 12800 * 256; G60 assign-VO codes are 0x320000 + VO number
+_ASSIGN_VO_COUNT = 256
 _ASSIGN_VO_SUFFIX = re.compile(r"\(VO(\d+)\)\s*$")
 _HW_ADDR_SUFFIX = re.compile(r"\(([^)]+)\)\s*$")
 _ON_WORD = re.compile(r"\bOn\b")
 _OFF_WORD = re.compile(r"\bOff\b")
 _FLEXLOGIC_PRIMITIVE = re.compile(r"^(END|NOT|XOR|AND|OR|NAND|NOR|TIMER)\b", re.IGNORECASE)
+_FLEXLOGIC_END_PACKED = 8192  # (0x20 << 8)
+_FLEXLOGIC_END_WIDE = 2097152  # (0x20 << 16)
 
 # IPv4 settings are stored as Number with MaxValue ~2^32-1. XML uses width-3
 # space-padded dotted-quads ('127.  0.  0.  1'); URS uses packed uint32.
@@ -808,6 +811,25 @@ def resolve_g60_flex_operand(
     return None
 
 
+def _flex_assign_vo_number(operand: str, g30_fv: int) -> Optional[int]:
+    """Return the 1-based virtual-output index for a FlexLogic assign-VO write.
+
+    G30 URS files from firmware 7.6x often store these as a bare G60-style
+    code (``3276801``) without the ``= Name (VOn)`` display string that XML
+    exports carry. Identify the VO from the name suffix when present, otherwise
+    from the numeric code in either the legacy G30 or wide G60 range.
+    """
+    if operand.startswith("= "):
+        vo_match = _ASSIGN_VO_SUFFIX.search(operand)
+        if vo_match:
+            return int(vo_match.group(1))
+    if _G30_ASSIGN_VO_BASE <= g30_fv < _G30_ASSIGN_VO_BASE + _ASSIGN_VO_COUNT:
+        return g30_fv - _G30_ASSIGN_VO_BASE
+    if _G60_ASSIGN_VO_BASE <= g30_fv < _G60_ASSIGN_VO_BASE + _ASSIGN_VO_COUNT:
+        return g30_fv - _G60_ASSIGN_VO_BASE
+    return None
+
+
 def remap_g30_flex_operand(
     operand: str,
     g30_flex_value: str,
@@ -831,14 +853,19 @@ def remap_g30_flex_operand(
         off_code = operand_map.get("OFF", "0") if operand_map else "0"
         return off_value, off_code
 
-    # FlexLogic assign-virtual-output: keep the G30 label, remap only the code.
-    if operand.startswith("= "):
-        vo_match = _ASSIGN_VO_SUFFIX.search(operand)
-        if vo_match:
-            return operand, str(_G60_ASSIGN_VO_BASE + int(vo_match.group(1)))
-        if _G30_ASSIGN_VO_BASE <= g30_fv < _G30_ASSIGN_VO_BASE + 256:
-            return operand, str(g30_fv + (_G60_ASSIGN_VO_BASE - _G30_ASSIGN_VO_BASE))
-        return None
+    # FlexLogic assign-virtual-output: keep a G30 ``= Name (VOn)`` label when
+    # present; 7.61+ URS exports often store only the bare write code
+    # (``3276801``) with no display text. Unrecognized codes fall through to
+    # the G60 template default (END / 2097152) and truncate the equation.
+    vo_num = _flex_assign_vo_number(operand, g30_fv)
+    if operand.startswith("= ") or vo_num is not None:
+        if vo_num is None:
+            return None
+        display = operand if operand.startswith("= ") else f"= Virt Op {vo_num} (VO{vo_num})"
+        return display, str(_G60_ASSIGN_VO_BASE + vo_num)
+
+    if g30_fv in (_FLEXLOGIC_END_PACKED, _FLEXLOGIC_END_WIDE):
+        return "END", str(_flexlogic_syntax_code(g30_fv))
 
     if operand_map:
         resolved = resolve_g60_flex_operand(operand, operand_map)
