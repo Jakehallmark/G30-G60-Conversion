@@ -1,10 +1,13 @@
 # G30 → G60 Conversion Stress Test Report
 
 **Report date:** July 9, 2026  
-**Converter version:** 1.0.6 (build 1)  
+**Converter version (this run):** 1.0.6 (build 1)  
+**Current converter:** 1.0.9 (build 1)  
 **Overall result:** **PASS**
 
 ## Executive summary
+
+This is the last committed 500-run validation. Converter **1.0.8 / 1.0.9** added bare Flex/Enum integer parsing and assign-VO remapping; they still use the same post-write check in `verify_conversion.py`. Re-run `_tmp_stress/run_stress.py` with the production G30 files to refresh these numbers against a later build.
 
 The converter completed **500** consecutive end-to-end conversions — **250 URS** and **250 XML** — using four production G30 site exports. Every run included post-write verification (re-read output and compare register-by-register). **All 500 runs passed** with zero verification mismatches and zero runtime errors.
 
@@ -20,7 +23,7 @@ This run exercises both conversion workflows across a representative firmware sp
 | Post-write verification | Enabled on every run |
 | Output cleanup | Per-run output directories removed after each iteration |
 | Original source files | Never modified (staged copies used) |
-| Machine-readable results | `_tmp_stress/runs_mixed/stress_report.json` |
+| Machine-readable results | local `_tmp_stress/runs_mixed/` (gitignored run output) |
 
 ## Source files
 

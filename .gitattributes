@@ -1,0 +1,4 @@
+# EnerVista UR device exports share the .urs extension with UrWeb source.
+# Keep GitHub language stats on the converter (Python / PowerShell), not templates.
+*.urs linguist-language=Text
+firmware/**/*.csv linguist-generated

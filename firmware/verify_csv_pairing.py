@@ -186,11 +186,24 @@ def _check_join_quality(g30_version: str, g60_version: str) -> list[str]:
     return issues
 
 
+def _list_bundled_csvs() -> None:
+    print("\nBundled Analogoperand CSVs:")
+    for side in ("g30", "g60"):
+        side_dir = FIRMWARE_DIR / side
+        csvs = sorted(side_dir.glob("AnalogoperandTo61850_*.csv")) if side_dir.is_dir() else []
+        if not csvs:
+            print(f"  {side}: (none)")
+            continue
+        revs = ", ".join(str(_csv_revision(path)) for path in csvs)
+        print(f"  {side}: {revs}")
+
+
 def main() -> int:
     print("Analogoperand CSV pairing validation")
     print("=" * 60)
 
     issues: list[str] = []
+    _list_bundled_csvs()
 
     print("\nG30 firmware archives:")
     issues.extend(_check_archive_coverage("g30"))

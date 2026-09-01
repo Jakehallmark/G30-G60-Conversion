@@ -8,11 +8,12 @@ Converts GE Multilin UR series **G30** relay settings to **G60** format via a st
 
 | Metric | Result |
 |--------|--------|
+| Current converter | **v1.0.9** |
 | Consecutive conversions | **500 / 500 passed** |
 | Workflows | URS + XML (alternating) |
 | Site files | 4 production G30 exports (FW 5.9x – 7.6x) |
 | Verification | Post-write register check on every run |
-| Latest test build | v1.0.6 |
+| Last 500-run report | v1.0.6 (see report for later converter notes) |
 
 Each [GitHub Release](https://github.com/Jakehallmark/GE-Multilin-UR-G30-G60-Conversion/releases) includes the stress test summary, SHA256 hash for IT allowlisting, and the full report as a downloadable asset.
 
@@ -23,16 +24,21 @@ Each [GitHub Release](https://github.com/Jakehallmark/GE-Multilin-UR-G30-G60-Con
 ```
 ├── convert_g30_to_g60.py          # XML converter engine (used by the GUI; dev CLI)
 ├── convert_g30_to_g60_urs.py      # URS converter engine (used by the GUI)
+├── urs_io.py                      # URS read/write helpers
+├── verify_conversion.py           # Post-write register check
 ├── bases/                         # G60 firmware templates (committed)
-│   ├── G60 Base.xml               #   default (firmware 860)
-│   ├── G60 Base [8.4x].xml
-│   ├── G60 Base [8.5x].xml
-│   └── G60 Base [8.7x].xml
-├── release/
-│   └── G30-to-G60-Converter.exe   # Prebuilt GUI (tag on GitHub Releases)
-├── aio/                           # GUI source + build.ps1 to rebuild release exe
+│   ├── G60 Base.xml / .urs        #   default (firmware 860)
+│   ├── G60 Base [8.4x].xml / .urs
+│   ├── G60 Base [8.5x].xml / .urs
+│   ├── G60 Base [8.6x].urs
+│   └── G60 Base [8.7x].xml / .urs
+├── firmware/                      # Analogoperand CSV maps (bundled into the exe)
+├── aio/                           # GUI source + build.ps1 / release.ps1
+├── _tmp_stress/                   # Optional local stress harness
+│   └── run_stress.py              #   run output under runs*/ is gitignored
 ├── docs/
 │   └── STRESS_TEST_REPORT.md      # 500-run validation report (committed)
+├── release/                       # Local build output — exe is not committed
 ├── README.md
 └── CONVERSION_PROCESS.md
 ```
@@ -114,14 +120,16 @@ python convert_g30_to_g60_urs.py --help
 
 ## Base templates
 
-| File | Typical firmware |
-|------|------------------|
-| `bases/G60 Base.xml` | 860 (default) |
-| `bases/G60 Base [8.4x].xml` | 840 |
-| `bases/G60 Base [8.5x].xml` | 850 |
-| `bases/G60 Base [8.7x].xml` | 870 |
+| XML template | URS pair | Typical firmware |
+|--------------|----------|------------------|
+| `bases/G60 Base.xml` | `G60 Base.urs` | 860 (default; also `G60 Base [8.6x].urs`) |
+| `bases/G60 Base [8.4x].xml` | `G60 Base [8.4x].urs` | 840 |
+| `bases/G60 Base [8.5x].xml` | `G60 Base [8.5x].urs` | 850 |
+| `bases/G60 Base [8.7x].xml` | `G60 Base [8.7x].urs` | 870 |
 
-Export each blank template from UR Setup on the matching relay firmware. The converter preserves each template's `version` and `orderCode` in the output.
+Export each blank template from UR Setup on the matching relay firmware. The converter preserves each template's `version` and `orderCode` in the output. Analogoperand CSV maps live in `firmware/` and are bundled into the GUI exe.
+
+There is no `G60 Base [8.6x].xml` — firmware 8.6x uses the default `G60 Base.xml`.
 
 ---
 
@@ -137,18 +145,18 @@ Pushing a version tag runs [`.github/workflows/release.yml`](.github/workflows/r
 .\aio\release.ps1
 ```
 
-This updates `aio/version.json`, **commits all pending changes** (not just the version file), creates a tag like `v1.0.4`, pushes to GitHub (which triggers CI to attach the exe to the Release), and runs a local build to `release/G30-to-G60-Converter.exe`.
+This updates `aio/version.json`, **commits all pending changes** (not just the version file), creates a tag like `v1.0.9`, pushes to GitHub (which triggers CI to attach the exe to the Release), and runs a local build to `release/G30-to-G60-Converter.exe`.
 
 Options:
 
 ```powershell
-.\aio\release.ps1 -Version 1.0.4    # explicit semver (next build number auto-increments)
+.\aio\release.ps1 -Version 1.0.9    # explicit semver (next build number auto-increments)
 .\aio\release.ps1 -Bump minor         # bump minor instead of patch
 .\aio\release.ps1 -SkipPush           # commit + tag + build locally only
 .\aio\release.ps1 -SkipBuild          # tag/push only; CI builds the exe
 ```
 
-Versioning: `aio/version.json` is the single source of truth. The Git tag matches `version` (e.g. `v1.0.4`). Windows exe **File version** uses four parts: `1.0.4.<build>` where `<build>` increments on rebuilds of the same release.
+Versioning: `aio/version.json` is the single source of truth. The Git tag matches `version` (e.g. `v1.0.9`). Windows exe **File version** uses four parts: `1.0.9.<build>` where `<build>` increments on rebuilds of the same release.
 
 Manual flow (if you prefer):
 
@@ -157,8 +165,8 @@ git add .
 git commit -m "Your changes"
 git push origin main
 
-git tag v1.0.4
-git push origin v1.0.4
+git tag v1.0.9
+git push origin v1.0.9
 ```
 
 When the Action finishes (green checkmark), open **Releases** — you should see `G30-to-G60-Converter.exe` as a downloadable asset (not just source zip/tar.gz).

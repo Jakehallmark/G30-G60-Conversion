@@ -1,5 +1,9 @@
 # Copy AnalogoperandTo61850_*.csv from the local URPC Devices folder into firmware/.
 # Run after refreshing UR Setup or copying legacy 590/600 tables from an older PC.
+#
+# Expected after a current URPC 7.30+ sync:
+#   g30: 730, 740, 760, 770, 840  (+ 590/600 if sourced from older UR Setup)
+#   g60: 840, 850, 860, 870
 
 $ErrorActionPreference = "Stop"
 $RepoRoot = Split-Path $PSScriptRoot -Parent

@@ -2,8 +2,14 @@
 Post-conversion verification — re-read the written output and compare each
 register/setting against the values the converter intended to write.
 
-Tolerates expected firmware differences (decimal precision, coded-value display
-text) while flagging mangled or unexpected setpoint changes.
+Tolerates expected firmware differences:
+
+- decimal precision on Number registers
+- coded-value display text (``123 (Name)`` vs the same code with a different label)
+- bare integer Flex/Enum / assign-VO / FlexLogic END codes vs ``code (display)``
+  (the form EnerVista writes for 1.0.8+ URS Flex/Enum parsing)
+
+Unexpected setpoint changes are flagged as mismatches.
 """
 
 from __future__ import annotations
@@ -170,6 +176,12 @@ def values_equivalent(
     act_code, act_display = split_coded_value(act)
     if exp_display is not None and act_display is not None:
         # Enum / Flex: firmware code must match; display text may differ (VO labels).
+        return exp_code == act_code
+
+    # Bare integer vs "code (display)" — URS Flex/Enum, assign-VO, empty END.
+    if exp_code.isdigit() and act_code.isdigit() and (
+        exp_display is not None or act_display is not None
+    ):
         return exp_code == act_code
 
     if setting_type == "Number" or (

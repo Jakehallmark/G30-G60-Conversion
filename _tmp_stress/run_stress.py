@@ -1,4 +1,8 @@
-"""Run N back-to-back conversions + verifications for stress testing."""
+"""Run N back-to-back conversions + verifications for stress testing.
+
+See `_tmp_stress/README.md` for the synthetic smoke command and the 500-run
+production invocation that writes `docs/STRESS_TEST_REPORT.md`.
+"""
 
 from __future__ import annotations
 

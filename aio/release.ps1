@@ -68,7 +68,7 @@ $previousBuild = [int]$current.build
 
 if ($Version) {
     if ($Version -notmatch "^\d+\.\d+\.\d+$") {
-        throw "Version must be semver like 1.0.4, got: $Version"
+        throw "Version must be semver like 1.0.9, got: $Version"
     }
     $newVersion = $Version
 } else {

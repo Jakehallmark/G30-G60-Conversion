@@ -11,13 +11,29 @@
 
 Encrypted firmware binaries (`.SFD` / `.000`) do **not** contain a plaintext signal dictionary. User-display remapping on the URS path joins the Analogoperand CSVs on IEC61850 path stems, then resolves names through the G60 Base EnumType `10013` table.
 
+## Currently bundled CSVs (converter 1.0.9)
+
+These files are committed and packed into `G30-to-G60-Converter.exe`:
+
+| Side | Revisions present |
+|------|-------------------|
+| `firmware/g30/` | 730, 740, 760, 770, 840 |
+| `firmware/g60/` | 840, 850, 860, 870 |
+
+**Not bundled** (still need sourcing from older UR Setup): `AnalogoperandTo61850_590.csv` and `_600.csv`. Until then, FW 5.9x / 6.0x URS conversions fall back to `740` and print a warning.
+
+Refresh from a local URPC install with `firmware/sync_urpc_csvs.ps1`, then `python firmware/verify_csv_pairing.py`.
+
 ## G30 firmware archives → CSV
 
 | Archive | Firmware line | CSV file |
 |---------|---------------|----------|
 | `A09ma590` | 5.9x | `AnalogoperandTo61850_590.csv` *(source required)* |
 | `A09ma606` | 6.0x | `AnalogoperandTo61850_600.csv` *(source required; URS `version` is `600`)* |
+| *(current URPC)* | 7.3x | `AnalogoperandTo61850_730.csv` |
+| *(current URPC)* | 7.4x | `AnalogoperandTo61850_740.csv` |
 | `A09ma766` | 7.6x | `AnalogoperandTo61850_760.csv` |
+| *(current URPC)* | 7.7x | `AnalogoperandTo61850_770.csv` |
 | `A09ma844` | 8.4x | `AnalogoperandTo61850_840.csv` |
 
 ## G60 firmware archives → CSV
@@ -67,10 +83,19 @@ On URS conversion the converter reads:
 
 It then picks the matching `AnalogoperandTo61850_<rev>.csv` on each side. If the exact revision is missing, it uses the nearest lower bundled file and warns.
 
+G60 template pairing:
+
+| Base XML | Firmware | Analogoperand CSV |
+|----------|----------|-------------------|
+| `G60 Base [8.4x].xml` | 840 | `g60/…_840.csv` |
+| `G60 Base [8.5x].xml` | 850 | `g60/…_850.csv` |
+| `G60 Base.xml` | 860 | `g60/…_860.csv` |
+| `G60 Base [8.7x].xml` | 870 | `g60/…_870.csv` |
+
 ## Verify coverage
 
 ```powershell
 python firmware/verify_csv_pairing.py
 ```
 
-This checks each local SFD archive, each G60 base template, lists any 5.9x/6.0x CSVs still needed, and validates join pairs (including SRC P anchors).
+This lists bundled CSVs, checks each local SFD archive, each G60 base template, lists any 5.9x/6.0x CSVs still needed, and validates join pairs (including SRC P anchors).

@@ -133,7 +133,8 @@ Use the SHA256 hash for BeyondTrust / Intune application allowlisting. **Only th
 
 - Wizard-style GUI (URS and XML conversion workflows)
 - Post-conversion verification with mismatch reporting
-- Bundled G60 base templates for firmware 8.4x-8.7x
+- Bundled G60 base templates for firmware 8.4x–8.7x (XML + paired `.urs`)
+- Analogoperand CSV maps from `firmware/` for URS user-display remapping
 - System light/dark theme support
 
 $stressBlock

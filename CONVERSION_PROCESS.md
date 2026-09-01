@@ -997,6 +997,8 @@ class G60OnlyRecord: ...     # G60 setting with no G30 source
 | `convert_g30_to_g60.py` | XML converter + shared transfer engine (source of truth) |
 | `convert_g30_to_g60_urs.py` | URS pipeline orchestrator; reuses the XML transfer engine |
 | `urs_io.py` | `.urs` parse/serialize, template pairing, header/tail handling |
+| `verify_conversion.py` | Post-write register check (GUI, CLI, and `_tmp_stress`) |
+| `firmware/` | AnalogoperandTo61850 CSV maps bundled into the GUI exe |
 | `bases/G60 Base*.xml` | G60 XML templates — setting types + code tables |
 | `bases/G60 Base*.urs` | G60 URS templates — register map + EnerVista structure |
 | `aio/app.py` | Desktop GUI (primary distribution); URS conversion is the default workflow |
@@ -1005,4 +1007,4 @@ class G60OnlyRecord: ...     # G60 setting with no G30 source
 
 ---
 
-*Updated to document the URS (.urs) conversion pipeline (`convert_g30_to_g60_urs.py` + `urs_io.py`), which reuses the XML transfer engine and is the default AiO workflow. XML pipeline current as of the FlexLogic assign-VO bare-code fix (2026-08-21).*
+*Updated to document the URS (.urs) conversion pipeline (`convert_g30_to_g60_urs.py` + `urs_io.py`), which reuses the XML transfer engine and is the default AiO workflow. XML pipeline current as of the FlexLogic assign-VO bare-code fix (2026-08-21). Related-file list aligned with converter 1.0.9 (`verify_conversion.py`, `firmware/`).*

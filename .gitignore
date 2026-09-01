@@ -21,17 +21,25 @@ _tmp_firmware_list.txt
 
 # Local test fixtures and dev scripts
 test_*.py
+test_out*.txt
 **/validate_bases.py
 HCHPublix*.xml
 Leesburg*.xml
 Publix*.xml
 
-# PyInstaller / packaging output
+# Stress-test run output (keep _tmp_stress/run_stress.py)
+_tmp_stress/runs/
+_tmp_stress/runs_*/
+
+# Unused NuGet spec (release workflow publishes the exe directly)
+packaging/
+
+# PyInstaller / pack output
 build/
-packaging/out/
 dist/
 aio/build/
 aio/dist/
+aio/dist-test/
 aio/pack-staging/
 aio/*.spec
 
